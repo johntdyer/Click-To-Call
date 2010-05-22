@@ -1,0 +1,112 @@
+<?xml version="1.0"?>
+<ccxml version="1.0">
+
+<meta name="author" content="Dustin Hayre"/>
+<meta name="copyright" content="2010 Dustin"/>
+<meta name="keywords" content="ccxml meta"/>
+<meta name="maintainer" content="dustin@voxeo.com"/>
+<meta name="description" content="Version 1.0"/>
+
+<var name="cust_connid"/>
+<var name="callcenter_connid"/>
+<var name="state" expr="'init'"/>
+<var name="cust_number" expr="session.values.numbertocall"/>
+<var name="first_name" expr="session.values.first_name"/>
+<var name="last_name" expr="session.values.last_name"/>
+<var name="company" expr="session.values.company"/>
+<var name="cust_dialog_active" expr="false"/>
+<var name="cust_dialogid"/>
+
+<eventprocessor statevariable="state">
+  
+  <transition event="ccxml.loaded"> 
+    <assign name="state" expr="'calling_customer'"/>
+    <createcall dest="'tel:+1' + cust_number" callerid="'4075551212'" connectionid="cust_connid"/>
+      <log expr="'**** CALLING CUSTOMER ****'"/>    
+  </transition>
+  
+  <transition event="connection.connected" state="calling_customer">
+       <log expr="'**** CUSTOMER CONNECTED ****'"/>
+     <assign name="state" expr="'calling_agent'"/>
+     <assign name="cust_dialog_active" expr="true"/>
+       <dialogstart src="'audio/HOLD.wav'" type="'audio/wav'" connectionid="cust_connid" dialogid="cust_dialogid"/>
+       <dialogstart src="'audio/CONNECTING.wav'" type="'audio/wav'" connectionid="cust_connid" dialogid="cust_dialogid"/>
+     <createcall dest="'tel:+14076256520'" callerid="'4075551234'" connectionid="callcenter_connid"/>
+       <log expr="'**** CALLING AGENT ****'"/>
+  </transition>
+  
+  <transition event="connection.connected" state="calling_agent">
+       <log expr="'**** AGENT CONNECTED - PLAYING WHISPER MESSAGE ****'"/>
+     <assign name="state" expr="'agent_connected'"/>
+     <dialogstart src="'audio/HOLD.wav'" type="'audio/wav'" connectionid="callcenter_connid"/>
+     <dialogstart src="'null://?text=' + first_name + ',' + last_name + ' with ' + company + '.;termdigits=*'" type="'application/x-texttospeech'" connectionid="callcenter_connid"/>
+     <dialogstart src="'null://?text='Please wait while we connect you. Beep&amp;termdigits=*'" type="'application/x-texttospeech'" connectionid="callcenter_connid"/>
+  </transition>
+  
+  <transition event="dialog.exit" state="agent_connected">
+     <assign name="state" expr="'call_bridged'"/>
+    <if cond="cust_dialog_active">
+      <dialogterminate dialogid="cust_dialogid"/>
+    </if>
+     
+     <send name="'user.join'" target="session.id" delay="'150ms'"/>
+     
+  </transition>
+  
+  <transition event="user.join">
+    <log expr="'**** JOINING CALL ****'"/>
+    <join id1="cust_connid" id2="callcenter_connid" entertone="true"/>
+  </transition>
+  
+  <transition event="conference.unjoined">
+  
+    <assign name="state" expr="'exit_dialog'"/>
+    <if cond="event$.eventsource == cust_connid">
+      <dialogstart src="'null://?text=Thanks for choosing us! Goodbye!&amp;termdigits=*'" type="'application/x-texttospeech'" connectionid="cust_connid"/> 
+    <else/>
+      <exit/>
+    </if>
+  </transition>
+   
+  <transition event="dialog.exit">
+    <if cond="event$.dialog.connectionid == cust_connid">
+      <assign name="cust_dialog_active" expr="false"/>
+    </if>
+   </transition>
+    
+  <transition event="dialog.exit" state="exit_dialog">
+     <if cond="event$.dialog.connectionid == cust_connid">
+       <log expr="'**** CUSTOMER EXIT DIALOG PLAYED - END CALL ****'"/>
+         <exit/>
+     <else/>
+       <log expr="'**** CALL CENTER EXIT DIALOG PLAYED - WAIT FOR CUSTOMER DIALOG TO FINISH ****'"/>
+     </if>
+  </transition>  
+  
+  <transition event="connection.failed" state="calling_customer">
+     <log expr="'**** FAILED TO REACH CUSTOMER ****'"/>
+     <log expr="'**** REASON: ' + event$.reason"/>
+     <log expr="'**** SIP REASON: ' + event$._sipreason"/>
+      <exit/>
+  </transition>
+  
+  <transition event="connection.failed" state="calling_agent">
+     <dialogstart src="'null://?text=Im sorry we appear to be having technical difficulties. Please try again later.&amp;termdigits=*'" type="'application/x-texttospeech'" connectionid="cust_connid"/>
+    <disconnect connectionid="cust_connid"/>
+  </transition>
+  
+  <transition event="connection.disconnected">
+    <log expr="'**** CALL DISCONNECTED - ENDING SESSION'"/>
+      <send name="'teardown.session'" target="session.id" delay="'5s'"/>
+  </transition>
+  
+  <transition event="teardown.session">
+     <exit/>
+  </transition>`
+  
+  <transition event="error.*">
+    <log expr="'**** ERROR: ' + event$.reason"/>
+     <exit/>
+  </transition>
+</eventprocessor>
+</ccxml>
